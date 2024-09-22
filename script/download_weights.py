@@ -1,5 +1,3 @@
-#!/usr/bin/env python
-
 import os
 import subprocess
 import shutil
@@ -37,4 +35,3 @@ cache_config_file, cache_file = download_model_hf(ckpt_repo_id, ckpt_filename, c
 with open('hf_path_exports.py', 'w') as f:
     f.write(f"cache_config_file = r'{cache_config_file}'\n")
     f.write(f"cache_file = r'{cache_file}'\n")
-
