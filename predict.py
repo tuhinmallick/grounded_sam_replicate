@@ -3,36 +3,40 @@ import sys
 import subprocess
 import torch
 
-#install GroundingDINO and segment_anything
-os.environ['CUDA_HOME'] = '/usr/local/cuda-11.7'
-os.environ['AM_I_DOCKER'] = 'true'
-os.environ['BUILD_WITH_CUDA'] = 'true'
-
-env_vars = os.environ.copy()
-HOME = os.getcwd()
-sys.path.insert(0, "weights")
-sys.path.insert(0, "weights/GroundingDINO")
-sys.path.insert(0, "weights/segment-anything")
-os.chdir("/src/weights/GroundingDINO")
-subprocess.call([sys.executable, '-m', 'pip', 'install', '-e', '.'], env=env_vars)
-os.chdir("/src/weights/segment-anything")
-subprocess.call([sys.executable, '-m', 'pip', 'install', '-e', '.'], env=env_vars)
-os.chdir(HOME)
-
 from cog import BasePredictor, Input, Path, BaseModel
 from typing import Iterator
-from groundingdino.util.slconfig import SLConfig
-from groundingdino.models import build_model
-from groundingdino.util.utils import clean_state_dict
-from segment_anything import build_sam, SamPredictor
-from grounded_sam import run_grounding_sam
 import uuid
-from hf_path_exports import cache_config_file, cache_file
 
 class Predictor(BasePredictor):
     def setup(self):
         """Load the model into memory to make running multiple predictions efficient"""
         print("Loading pipelines...x")
+
+        env_vars = os.environ.copy()
+        HOME = os.getcwd()
+
+        subprocess.call([sys.executable, 'script/download_weights.py'], env=env_vars)
+
+        #install GroundingDINO and segment_anything
+        os.environ['CUDA_HOME'] = '/usr/local/cuda-11.7'
+        os.environ['AM_I_DOCKER'] = 'true'
+        os.environ['BUILD_WITH_CUDA'] = 'true'
+
+
+        sys.path.insert(0, "weights")
+        sys.path.insert(0, "weights/GroundingDINO")
+        sys.path.insert(0, "weights/segment-anything")
+        os.chdir("/src/weights/GroundingDINO")
+        subprocess.call([sys.executable, '-m', 'pip', 'install', '-e', '.'], env=env_vars)
+        os.chdir("/src/weights/segment-anything")
+        subprocess.call([sys.executable, '-m', 'pip', 'install', '-e', '.'], env=env_vars)
+        os.chdir(HOME)
+
+        from groundingdino.util.slconfig import SLConfig
+        from groundingdino.models import build_model
+        from groundingdino.util.utils import clean_state_dict
+        from segment_anything import build_sam, SamPredictor
+        from hf_path_exports import cache_config_file, cache_file
 
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -59,42 +63,47 @@ class Predictor(BasePredictor):
             ),
             mask_prompt: str = Input(
                 description="Positive mask prompt",
-                default="clothes,shoes",
+                default="object",
             ),
             negative_mask_prompt: str = Input(
                 description="Negative mask prompt",
-                default="pants",
+                default=None,
             ),
             adjustment_factor: int = Input(
                 description="Mask Adjustment Factor (-ve for erosion, +ve for dilation)",
-                default=0,
+                default=-15,
             ),
     ) -> Iterator[Path]:
         """Run a single prediction on the model"""
+        from grounded_sam import run_grounding_sam
+
         predict_id = str(uuid.uuid4())
 
         print(f"Running prediction: {predict_id}...")
 
-        annotated_picture_mask, neg_annotated_picture_mask, mask, inverted_mask = run_grounding_sam(image,
+        annotated_picture_mask, neg_annotated_picture_mask, mask, inverted_mask, mask_removed, mask_removed_white_background = run_grounding_sam(image,
                                                                                                     mask_prompt,
                                                                                                     negative_mask_prompt,
                                                                                                     self.groundingdino_model,
                                                                                                     self.sam_predictor,
                                                                                                     adjustment_factor)
+
         print("Done!")
 
         variable_dict = {
             'annotated_picture_mask': annotated_picture_mask,
             'neg_annotated_picture_mask': neg_annotated_picture_mask,
             'mask': mask,
-            'inverted_mask': inverted_mask
+            'inverted_mask': inverted_mask,
+            'mask_removed': mask_removed,
+            'mask_removed_white_background': mask_removed_white_background,
         }
 
         output_dir = "/tmp/" + predict_id
         os.makedirs(output_dir, exist_ok=True)  # create directory if it doesn't exist
 
         for var_name, img in variable_dict.items():
-            random_filename = output_dir + "/" + var_name + ".jpg"
-            rgb_img = img.convert('RGB')  # Converting image to RGB
-            rgb_img.save(random_filename)
+            random_filename = output_dir + "/" + var_name + ".png"
+            # rgb_img = img.convert('RGB')  # Converting image to RGB
+            img.save(random_filename)
             yield Path(random_filename)
