@@ -1,4 +1,3 @@
-
 from PIL import Image, ImageDraw, ImageFont
 import sys
 sys.path.insert(0, "weights/Grounded-Segment-Anything/GroundingDINO")
@@ -116,4 +115,21 @@ def run_grounding_sam(local_image_path, positive_prompt, negative_prompt, ground
     # Update inverted mask definition
     final_inverted_mask = 255 - final_mask
 
-    return Image.fromarray(final_annotated_frame_with_mask), Image.fromarray(neg_annotated_frame_with_mask), Image.fromarray(final_mask), Image.fromarray(final_inverted_mask)
+    #remove background from the image by applying the mask, save with white background and transparent background
+
+    # background_removed_image = cv2.bitwise_and(image_source, image_source, mask=final_mask)
+    # background_removed_image_with_white_bg = cv2.bitwise_and(image_source, image_source, mask=final_mask)
+
+    if image_source.shape[2] != 4:
+        image_source = cv2.cvtColor(image_source, cv2.COLOR_BGR2BGRA)
+
+    # Create a transparent background image
+    transparent_image = cv2.bitwise_and(image_source, image_source, mask=final_mask)
+    transparent_image[:, :, 3] = final_mask
+
+    # Create a white background image by overlaying the transparent image on a white background
+    white_bg_image = np.ones_like(image_source) * 255
+    white_bg_image = cv2.bitwise_and(white_bg_image, white_bg_image, mask=final_inverted_mask)
+    white_bg_image = cv2.bitwise_or(white_bg_image, transparent_image)
+
+    return Image.fromarray(final_annotated_frame_with_mask), Image.fromarray(neg_annotated_frame_with_mask), Image.fromarray(final_mask), Image.fromarray(final_inverted_mask), Image.fromarray(transparent_image), Image.fromarray(white_bg_image)
